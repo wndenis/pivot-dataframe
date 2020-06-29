@@ -3,8 +3,20 @@ import pandas as pd
 import json
 import io
 
+ru_en = {"ПАО": "PAO",
+         "ЦА": "CA",
+         "ПЦП": "PCP",
+         "ТБ": "TB",
+         "ДИТ": "DIT",
+         "ДЗО": "DZO",
+         "ПАО+ДИТ": "PAO+DIT",
+         "ПАО+ДЗО+ДИТ": "PAO+DZO+DIT",
+         "ВСП": "VSP"
+         }
+en_ru = {v: k for k, v in ru_en.items()}
 
-def df_to_pivot(df):
+
+def df_to_pivot(df: pd.DataFrame) -> pd.DataFrame:
     """
     Делает сводную таблицу для датафрейма с агрегацией ПАО и проч.
     :param df: датафрейм
@@ -15,21 +27,11 @@ def df_to_pivot(df):
     pt["ПАО"] = pt.apply(lambda row: row["ЦА"] + row["ПЦП"] + row["ТБ"], axis=1)
     pt["ПАО+ДИТ"] = pt.apply(lambda row: row["ПАО"] + row["ДИТ"], axis=1)
     pt["ПАО+ДЗО+ДИТ"] = pt.apply(lambda row: row["ПАО+ДИТ"] + row["ДЗО"], axis=1)
-    names = {"ПАО": "PAO",
-             "ЦА": "CA",
-             "ПЦП": "PCP",
-             "ТБ": "TB",
-             "ДИТ": "DIT",
-             "ДЗО": "DZO",
-             "ПАО+ДИТ": "PAO+DIT",
-             "ПАО+ДЗО+ДИТ": "PAO+DZO+DIT"
-             }
-    pt = pt.rename(columns=names)
-    pt = pt.fillna(0)
+    pt = pt.rename(columns=ru_en)
     return pt
 
 
-def df_to_json(df: pd.DataFrame, date: str = ""):
+def df_to_json(df: pd.DataFrame, date: str = "") -> str:
     """
     Переводит датафрейм в кастомный вложенный жсон
     :param df: датафрейм
@@ -77,7 +79,7 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
                  "value": "ДЗО"
              },
              {
-                 "id": "ВСП",  # todo: сделать английский ИД
+                 "id": "VSP",  # todo: сделать английский ИД
                  "value": "ВСП"
              }
          ]
@@ -116,6 +118,10 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
              {
                  "id": "DZO",
                  "value": "ДЗО"
+             },
+             {
+                 "id": "VSP",  # todo: сделать английский ИД
+                 "value": "ВСП"
              }
          ]
          },
@@ -153,15 +159,21 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
              {
                  "id": "DZO",
                  "value": "ДЗО"
+             },
+             {
+                 "id": "VSP",  # todo: сделать английский ИД
+                 "value": "ВСП"
              }
          ]
          }
 
     ], "rows": []}
 
-    i = 0
-    for elem in df.iterrows():
+    for i, elem in enumerate(df.iterrows()):
         row = f"row{i}"
+
+        # elem[0] - заголовок строки (название блока)
+        # elem[1][8, 17, 26] - значения для свёрнутого вида, берутся из колонки ПАО+ДЗО+ДИТ
         json_view["rows"].append({"id": row, "rowValues": [
             {"id": "block", "value": elem[0]},
             {"id": "fact", "value": elem[1][8], "nested": []},
@@ -169,19 +181,22 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
             {"id": "delta", "value": elem[1][26], "nested": []}
         ]})
 
+        # срезы из строки по трём таблицам
         slice1 = elem[1][0:9]
         slice2 = elem[1][9:18]
         slice3 = elem[1][18:27]
 
+        # добавляем каждому элементу строки название столбца, чтобы использовать как индекс
         slice1 = list(zip(slice1, slice1.index))
         slice2 = list(zip(slice2, slice2.index))
         slice3 = list(zip(slice3, slice3.index))
 
+        # записываем каждый срез во вложенные элементы каждого из 3 главных столбцов
         json_view["rows"][-1]["rowValues"][1]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice1]
         json_view["rows"][-1]["rowValues"][2]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice2]
         json_view["rows"][-1]["rowValues"][3]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice3]
-        i += 1
-    json_view = json.dumps(json_view, default=myconverter, ensure_ascii=False)#, indent=2)
+    # переводим в json
+    json_view = json.dumps(json_view, default=myconverter, ensure_ascii=False)
     return json_view
 
 
@@ -224,7 +239,7 @@ def process_xls(table_name: str = "denis_input_data.xlsx", excel=False): #, date
     return process_dataframe(head, excel=excel)
 
 
-def add_total_row(df: pd.DataFrame):
+def add_total_row(df: pd.DataFrame) -> pd.DataFrame:
     """
     Добавляет строчку с total суммами по столбцам к итоговой таблице
     :param df: финальный датафрейм с тремя конкатенированными таблицами
@@ -238,11 +253,10 @@ def add_total_row(df: pd.DataFrame):
     return df
 
 
-
-###
-###                 \/ Функция внизу \/
-### ============================================================
-###
+#
+#                 \/ Функция внизу \/
+# ============================================================
+#
 def process_dataframe(df: pd.DataFrame, excel: bool=False):
     """
     Читает датафрейм и делает из него сводную таблицу в json
@@ -257,14 +271,12 @@ def process_dataframe(df: pd.DataFrame, excel: bool=False):
     print("Убираю нули")
 
     df = df.fillna(0)
-    # if date:
-    #     head = head[head["ValueDate"] == date]
+
     date = df["ValueDate"].values[0]  # получаю дату
     print("Выборка")
 
-    # FIXME: числа были в строках
-    default = df_to_pivot(df[df["Status"].isin((0, "0"))])
-    edited = df_to_pivot(df[df["Status"].isin((1, "1"))])
+    default = df_to_pivot(df[df["Status"].astype(int) == 0])
+    edited = df_to_pivot(df[df["Status"].astype(int) == 1])
     delta = edited - default
 
     print("Экспорт")
@@ -283,6 +295,9 @@ def process_dataframe(df: pd.DataFrame, excel: bool=False):
         summary = pd.concat([default, edited, delta], axis=1, sort=False)
         # добавляю строку с суммами
         summary = add_total_row(summary)
+        # обратное переименовывание
+        summary = summary.rename(columns=en_ru)
+
         # summary.to_excel('excel_export.xlsx')
         return df_to_binary_excel(summary)
 
@@ -293,4 +308,4 @@ def process_dataframe(df: pd.DataFrame, excel: bool=False):
 
 
 if __name__ == "__main__":
-    print(process_xls())
+    print(process_xls(excel=True))
