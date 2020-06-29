@@ -159,16 +159,6 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
 
     ], "rows": []}
 
-    """
-    Суммирование по колонкам - закомментировано, дорабатывается
-    """
-    # print()
-    # print(df)
-    # print()
-    # sumrow = pd.DataFrame(columns=df.columns)
-    # sumrow = sumrow.append(df.sum(numeric_only=True), ignore_index=True)
-    # print(sumrow)
-    # df = df["Сумма"] = df.apply(lambda row: row["ЦА"] + row["ПЦП"] + row["ТБ"], axis=1)
     i = 0
     for elem in df.iterrows():
         row = f"row{i}"
@@ -178,7 +168,7 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
             {"id": "staff", "value": elem[1][17], "nested": []},
             {"id": "delta", "value": elem[1][26], "nested": []}
         ]})
-        # json_view["rows"].append({"id": row, "rowValues": [{"id": f"fact", "value": elem[1]["PAO+DZO+DIT"], "nested": []}]})
+
         slice1 = elem[1][0:9]
         slice2 = elem[1][9:18]
         slice3 = elem[1][18:27]
@@ -197,7 +187,7 @@ def df_to_json(df: pd.DataFrame, date: str = ""):
 
 def myconverter(obj):
     """
-    Конвертер из np типов в python для json
+    Конвертер из numpy типов в python для json
     :param obj:
     :return:
     """
@@ -228,9 +218,24 @@ def process_xls(table_name: str = "denis_input_data.xlsx", excel=False): #, date
     :param excel: нужно ли экспортировать в excel
     :return: см process_dataframe
     """
-    head = pd.read_excel(table_name, excel=excel)
-    return process_dataframe(head)
+    print("Начал чтение")
+    head = pd.read_excel(table_name)
+    print("Прочитал")
+    return process_dataframe(head, excel=excel)
 
+
+def add_total_row(df: pd.DataFrame):
+    """
+    Добавляет строчку с total суммами по столбцам к итоговой таблице
+    :param df: финальный датафрейм с тремя конкатенированными таблицами
+    :return: датафрейм с добавленной строкой сумм
+    """
+    sumrow = pd.DataFrame(columns=df.columns)
+    indx = sumrow.index
+    sumrow = sumrow.append(df.sum(numeric_only=True), ignore_index=True)
+    sumrow.index = indx.union(["Total"])
+    df = pd.concat([sumrow, df])
+    return df
 
 
 
@@ -243,28 +248,47 @@ def process_dataframe(df: pd.DataFrame, excel: bool=False):
     Читает датафрейм и делает из него сводную таблицу в json
     /или excel - пока не реализовано/
 
-    :param table_name: название excel файла
+    :param df: датафрейм
     :param excel: Возвращать excel вместо json
     :return: сводная таблица в выбранном формате
     """
-
+    print("Читаю колонки")
     df = pd.DataFrame(df, columns=["Status", "Value", "ValueDate", "Org_Tag", "Block_Tag"])
+    print("Убираю нули")
 
     df = df.fillna(0)
     # if date:
     #     head = head[head["ValueDate"] == date]
     date = df["ValueDate"].values[0]  # получаю дату
+    print("Выборка")
 
     # FIXME: числа были в строках
     default = df_to_pivot(df[df["Status"].isin((0, "0"))])
     edited = df_to_pivot(df[df["Status"].isin((1, "1"))])
     delta = edited - default
 
-    summary = pd.concat([default, edited, delta], axis=1, sort=False)
-    if excel:
-        print("Конвертация в excel не реализована")
-        return df_to_binary_excel(df)
+    print("Экспорт")
 
+    # EXCEL
+    if excel:
+        # добавляю заголовки табличек
+        default.columns = pd.MultiIndex.from_product(
+            [[f"{date} УТВЕРЖДЁННЫЙ БП (ПЛАН + ПРИКАЗЫ)"], default.columns])
+        edited.columns = pd.MultiIndex.from_product(
+            [[f"{date} СКОРР. ПЛАН (ПРЕДЛОЖЕНИЯ БЛОКОВ - численность загружена в АС Simplex)"], edited.columns])
+        delta.columns = pd.MultiIndex.from_product(
+            [[f"Дельта {date} СКОРР. ПЛАН - {date} УТВЕРЖДЁННЫЙ БП"], delta.columns])
+
+        # объединяю три таблицы
+        summary = pd.concat([default, edited, delta], axis=1, sort=False)
+        # добавляю строку с суммами
+        summary = add_total_row(summary)
+        # summary.to_excel('excel_export.xlsx')
+        return df_to_binary_excel(summary)
+
+    # JSON
+    summary = pd.concat([default, edited, delta], axis=1, sort=False)
+    summary = add_total_row(summary)
     return df_to_json(summary, date=date)
 
 
