@@ -2,18 +2,39 @@ import numpy as np
 import pandas as pd
 import json
 import io
+from collections import OrderedDict
 
-ru_en = {"ПАО": "PAO",
-         "ЦА": "CA",
-         "ПЦП": "PCP",
-         "ТБ": "TB",
-         "ДИТ": "DIT",
-         "ДЗО": "DZO",
-         "ПАО+ДИТ": "PAO+DIT",
-         "ПАО+ДЗО+ДИТ": "PAO+DZO+DIT",
-         "ВСП": "VSP"
-         }
-en_ru = {v: k for k, v in ru_en.items()}
+
+# временное решение для отключения print в файле
+def opt_print(func):
+    def wrapped(*args, **kwargs):
+        if opt_print.do_print:
+            return func(*args, **kwargs)
+    return wrapped
+
+
+opt_print.do_print = False  # True - включить print, False - выключить print
+print = opt_print(print)
+
+
+# упорядоченный словарь
+# хранит порядок перехода от кириллицы к латинице
+# хранит порядок столбцов в таблице слева направо
+ru_en = OrderedDict(
+    {
+        "ПАО+ДЗО+ДИТ": "PAO_DZO_DIT",
+        "ПАО+ДИТ": "PAO_DIT",
+        "ПАО": "PAO",
+        "ЦА": "CA",
+        "ПЦП": "PCP",
+        "ТБ": "TB",
+        "ВСП": "VSP",
+        "ДИТ": "DIT",
+        "ДЗО": "DZO"
+    }
+)
+# упорядоченный словарь для перехода от латиницы к кирилице
+en_ru = OrderedDict({v: k for k, v in ru_en.items()})
 
 
 def df_to_pivot(df: pd.DataFrame) -> pd.DataFrame:
@@ -22,11 +43,16 @@ def df_to_pivot(df: pd.DataFrame) -> pd.DataFrame:
     :param df: датафрейм
     :return: сводный датафрейм
     """
+    # создание сводной таблицы и устранение None из результата
     pt = pd.pivot_table(df, "Value", index="Block_Tag", columns="Org_Tag", aggfunc=np.sum)
     pt = pt.fillna(0)
-    pt["ПАО"] = pt.apply(lambda row: row["ЦА"] + row["ПЦП"] + row["ТБ"], axis=1)
+
+    # сбор и вставка дополнительных колонок-агрегатов
+    pt["ПАО"] = pt.apply(lambda row: row["ЦА"] + row["ПЦП"] + row["ТБ"] + row["ВСП"], axis=1)
     pt["ПАО+ДИТ"] = pt.apply(lambda row: row["ПАО"] + row["ДИТ"], axis=1)
     pt["ПАО+ДЗО+ДИТ"] = pt.apply(lambda row: row["ПАО+ДИТ"] + row["ДЗО"], axis=1)
+
+    # перевод названий колонок в латиницу
     pt = pt.rename(columns=ru_en)
     return pt
 
@@ -38,6 +64,8 @@ def df_to_json(df: pd.DataFrame, date: str = "") -> str:
     :param date: дата, которая подставится в шапку
     :return: вложенное json представление датафрейма
     """
+
+    # хранит в себе всё json-представление датафрейма
     json_view = {"headers": [
         {
             "id": "block",
@@ -45,157 +73,59 @@ def df_to_json(df: pd.DataFrame, date: str = "") -> str:
         },
         {"id": "fact",
          "value": f"{date} УТВЕРЖДЁННЫЙ БП (ПЛАН + ПРИКАЗЫ)",
-         "nested": [
-             {
-                 "id": "PAO+DZO+DIT",
-                 "value": "ПАО+ДЗО+ДИТ"
-             },
-             {
-                 "id": "PAO+DIT",
-                 "value": "ПАО+ДИТ"
-             },
-             {
-                 "id": "PAO",
-                 "value": "ПАО"
-             },
-             {
-                 "id": "CA",
-                 "value": "ЦА"
-             },
-             {
-                 "id": "PCP",
-                 "value": "ПЦП"
-             },
-             {
-                 "id": "TB",
-                 "value": "ТБ"
-             },
-             {
-                 "id": "DIT",
-                 "value": "ДИТ"
-             },
-             {
-                 "id": "DZO",
-                 "value": "ДЗО"
-             },
-             {
-                 "id": "VSP",  # todo: сделать английский ИД
-                 "value": "ВСП"
-             }
-         ]
-        },
+         "nested": []
+         },
         {"id": "staff",
          "value": f"{date} СКОРР. ПЛАН (ПРЕДЛОЖЕНИЯ БЛОКОВ - численность загружена в АС Simplex)",
-         "nested": [
-             {
-                 "id": "PAO+DZO+DIT",
-                 "value": "ПАО+ДЗО+ДИТ"
-             },
-             {
-                 "id": "PAO+DIT",
-                 "value": "ПАО+ДИТ"
-             },
-             {
-                 "id": "PAO",
-                 "value": "ПАО"
-             },
-             {
-                 "id": "CA",
-                 "value": "ЦА"
-             },
-             {
-                 "id": "PCP",
-                 "value": "ПЦП"
-             },
-             {
-                 "id": "TB",
-                 "value": "ТБ"
-             },
-             {
-                 "id": "DIT",
-                 "value": "ДИТ"
-             },
-             {
-                 "id": "DZO",
-                 "value": "ДЗО"
-             },
-             {
-                 "id": "VSP",  # todo: сделать английский ИД
-                 "value": "ВСП"
-             }
-         ]
+         "nested": []
          },
         {"id": "delta",
          "value": f"Дельта {date} СКОРР. ПЛАН - {date} УТВЕРЖДЁННЫЙ БП",
-         "nested": [
-             {
-                 "id": "PAO+DZO+DIT",
-                 "value": "ПАО+ДЗО+ДИТ"
-             },
-             {
-                 "id": "PAO+DIT",
-                 "value": "ПАО+ДИТ"
-             },
-             {
-                 "id": "PAO",
-                 "value": "ПАО"
-             },
-             {
-                 "id": "CA",
-                 "value": "ЦА"
-             },
-             {
-                 "id": "PCP",
-                 "value": "ПЦП"
-             },
-             {
-                 "id": "TB",
-                 "value": "ТБ"
-             },
-             {
-                 "id": "DIT",
-                 "value": "ДИТ"
-             },
-             {
-                 "id": "DZO",
-                 "value": "ДЗО"
-             },
-             {
-                 "id": "VSP",  # todo: сделать английский ИД
-                 "value": "ВСП"
-             }
-         ]
+         "nested": []
          }
-
     ], "rows": []}
 
+    # Создание всех вложенных структур для fact, staff и block с автоматическим id
+    # и названием в шапке из упорядоченного словаря ru_en для обеспечения нужного порядка.
+    # Comprehension на каждой итерации для того, чтобы списки были независимые без использования deepcopy.
+    for i in range(1, len(json_view["headers"])):
+        json_view["headers"][i]["nested"] = [{"id": ru_en[elem], "value": elem} for elem in ru_en]
+
+    # проход по строчкам из датафрейма и запись в json
     for i, elem in enumerate(df.iterrows()):
         row = f"row{i}"
 
+        # запись базового элемента строки - её id, название блока, а также значения для свёрнутого вида
         # elem[0] - заголовок строки (название блока)
-        # elem[1][8, 17, 26] - значения для свёрнутого вида, берутся из колонки ПАО+ДЗО+ДИТ
+        # elem[1] - значения колонок
+        # elem[1][8, 17, 26] - значения из колонки ПАО+ДЗО+ДИТ для свёрнутого вида
+        # TODO: это ненадёжно, нужно по заголовку
         json_view["rows"].append({"id": row, "rowValues": [
-            {"id": "block", "value": elem[0]},
-            {"id": "fact", "value": elem[1][8], "nested": []},
-            {"id": "staff", "value": elem[1][17], "nested": []},
-            {"id": "delta", "value": elem[1][26], "nested": []}
+            {"id": "block", "value": elem[0]},                      # название строки (блока)
+            {"id": "fact", "value": elem[1][8], "nested": []},      # данные из плана
+            {"id": "staff", "value": elem[1][17], "nested": []},    # данные из предложений
+            {"id": "delta", "value": elem[1][26], "nested": []}     # дельта
         ]})
 
-        # срезы из строки по трём таблицам
+        # работа с nested содержимым строки
+
+        # срезы из строки по трём таблицам (было, предложено, дельта)
+        # таблица изначально была объединена, поэтому используются индексы
         slice1 = elem[1][0:9]
         slice2 = elem[1][9:18]
         slice3 = elem[1][18:27]
 
-        # добавляем каждому элементу строки название столбца, чтобы использовать как индекс
-        slice1 = list(zip(slice1, slice1.index))
-        slice2 = list(zip(slice2, slice2.index))
-        slice3 = list(zip(slice3, slice3.index))
-
-        # записываем каждый срез во вложенные элементы каждого из 3 главных столбцов
-        json_view["rows"][-1]["rowValues"][1]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice1]
-        json_view["rows"][-1]["rowValues"][2]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice2]
-        json_view["rows"][-1]["rowValues"][3]["nested"] = [{"id": str(ind), "value": val} for val, ind in slice3]
+        # для каждого среза
+        # пробегаемся по упорядоченному списку названий столбцов в en_ru
+        # название столбца из списка используем как id для элемента строки
+        # а также как индекс для series из среза
+        # так обеспечивается желаемый порядок столбцов в json
+        json_view["rows"][-1]["rowValues"][1]["nested"] = [{"id": str(ind), "value": slice1[ind]} for ind in en_ru]
+        json_view["rows"][-1]["rowValues"][2]["nested"] = [{"id": str(ind), "value": slice2[ind]} for ind in en_ru]
+        json_view["rows"][-1]["rowValues"][3]["nested"] = [{"id": str(ind), "value": slice3[ind]} for ind in en_ru]
     # переводим в json
+    # myconverter для перехода из типов numpy в python
+    # ensure_ascii для кириллицы
     json_view = json.dumps(json_view, default=myconverter, ensure_ascii=False)
     return json_view
 
@@ -213,6 +143,7 @@ def myconverter(obj):
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
 
+
 # df to binary file with excel type
 def df_to_binary_excel(df):
     """
@@ -226,7 +157,7 @@ def df_to_binary_excel(df):
     return towrite.getvalue()
 
 
-def process_xls(table_name: str = "denis_input_data.xlsx", excel=False): #, date="2021-01-01"):
+def process_xls(table_name: str = "denis_input_data.xlsx", excel=False):  # , date="2021-01-01"):
     """
     Достаёт датафрейм из xlsx
     :param table_name: название файла
@@ -257,7 +188,7 @@ def add_total_row(df: pd.DataFrame) -> pd.DataFrame:
 #                 \/ Функция внизу \/
 # ============================================================
 #
-def process_dataframe(df: pd.DataFrame, excel: bool=False):
+def process_dataframe(df: pd.DataFrame, excel: bool = False):
     """
     Читает датафрейм и делает из него сводную таблицу в json
     /или excel - пока не реализовано/
@@ -308,4 +239,4 @@ def process_dataframe(df: pd.DataFrame, excel: bool=False):
 
 
 if __name__ == "__main__":
-    print(process_xls(excel=True))
+    print(process_xls())
