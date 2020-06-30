@@ -10,12 +10,12 @@ def opt_print(func):
     def wrapped(*args, **kwargs):
         if opt_print.do_print:
             return func(*args, **kwargs)
+
     return wrapped
 
 
 opt_print.do_print = False  # True - включить print, False - выключить print
 print = opt_print(print)
-
 
 # упорядоченный словарь
 # хранит порядок перехода от кириллицы к латинице
@@ -101,10 +101,10 @@ def df_to_json(df: pd.DataFrame, date: str = "") -> str:
         # elem[1][8, 17, 26] - значения из колонки ПАО+ДЗО+ДИТ для свёрнутого вида
         # TODO: это ненадёжно, нужно по заголовку
         json_view["rows"].append({"id": row, "rowValues": [
-            {"id": "block", "value": elem[0]},                      # название строки (блока)
-            {"id": "fact", "value": elem[1][8], "nested": []},      # данные из плана
-            {"id": "staff", "value": elem[1][17], "nested": []},    # данные из предложений
-            {"id": "delta", "value": elem[1][26], "nested": []}     # дельта
+            {"id": "block", "value": elem[0]},  # название строки (блока)
+            {"id": "fact", "value": elem[1][8], "nested": []},  # данные из плана
+            {"id": "staff", "value": elem[1][17], "nested": []},  # данные из предложений
+            {"id": "delta", "value": elem[1][26], "nested": []}  # дельта
         ]})
 
         # работа с nested содержимым строки
@@ -157,7 +157,7 @@ def df_to_binary_excel(df):
     return towrite.getvalue()
 
 
-def process_xls(table_name: str = "denis_input_data.xlsx", excel=False):  # , date="2021-01-01"):
+def process_xls(table_name: str = "denis_debug.xlsx", excel=False):  # , date="2021-01-01"):
     """
     Достаёт датафрейм из xlsx
     :param table_name: название файла
@@ -199,8 +199,11 @@ def process_dataframe(df: pd.DataFrame, excel: bool = False):
     """
     print("Читаю колонки")
     df = pd.DataFrame(df, columns=["Status", "Value", "ValueDate", "Org_Tag", "Block_Tag"])
-    print("Убираю нули")
 
+    # дроп нулей в org_tag и block_tag
+    df = df[(df[["Org_Tag", "Block_Tag"]].notnull()).all(axis=1)]
+
+    print("Убираю нули в остальных колонках")
     df = df.fillna(0)
 
     date = df["ValueDate"].values[0]  # получаю дату
@@ -230,6 +233,7 @@ def process_dataframe(df: pd.DataFrame, excel: bool = False):
         summary = summary.rename(columns=en_ru)
 
         # summary.to_excel('excel_export.xlsx')
+        # exit()
         return df_to_binary_excel(summary)
 
     # JSON
